@@ -1,0 +1,403 @@
+#pragma once
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+template <typename KeyType, typename ValueType, typename Hash = std::hash<KeyType>>
+class HashMap {
+private:
+    struct Node {
+        std::pair<KeyType, ValueType> cell;
+        bool has_created, has_deleted;
+
+        Node() {
+            has_created = false;
+            has_deleted = false;
+        }
+
+        Node(const KeyType& key, const ValueType& value) : cell(std::make_pair(key, value)) {
+            has_created = true;
+            has_deleted = false;
+        }
+
+        Node(const std::pair<KeyType, ValueType>& cell_) : cell(cell_) {
+            has_created = true;
+            has_deleted = false;
+        }
+
+        const KeyType& getKey() const {
+            return cell.first;
+        }
+
+        std::pair<KeyType, ValueType>& getPair() {
+            return cell;
+        }
+
+        const std::pair<KeyType, ValueType>& getPair() const {
+            return cell;
+        }
+    };
+
+    size_t inc(size_t x) const {
+        x++;
+        if (x == tableSize) {
+            x = 0;
+        }
+        return x;
+    }
+
+    size_t getHash(const KeyType& key) const {
+        return hasher(key) % tableSize;
+    }
+
+    static const size_t OriginalSize = 8, OriginalCapacity = 6;
+    std::vector<Node> hashTable;
+    std::vector<size_t> backward, forward;
+    size_t posBegin, posEnd;
+    Hash hasher;
+    size_t tableSize, tableCapacity, cntDeleted, cntNonDeleted;
+
+    void resize() {
+        auto save = *this;
+
+        tableSize *= 2;
+        tableCapacity *= 2;
+        backward.resize(tableSize + 1);
+        forward.resize(tableSize + 1);
+        posBegin = posEnd = tableSize;
+        cntDeleted = cntNonDeleted = 0;
+        hashTable.resize(tableSize);
+        for (auto& node : hashTable) {
+            node.has_created = false;
+            node.has_deleted = false;
+        }
+        for (auto& it : save) {
+            insert(it);
+        }
+    }
+
+    void rehash() {
+        auto save = *this;
+
+        posBegin = posEnd = tableSize;
+        cntDeleted = cntNonDeleted = 0;
+        for (auto& node : hashTable) {
+            node.has_created = false;
+            node.has_deleted = false;
+        }
+        for (auto& it : save) {
+            insert(it);
+        }
+    }
+
+    void insertIterator(size_t pos) {
+        if (cntNonDeleted == 0) {
+            posBegin = pos;
+            forward[pos] = posEnd;
+            backward[posEnd] = pos;
+        }
+        else {
+            int last = backward[posEnd];
+            forward[last] = pos;
+            backward[pos] = last;
+            forward[pos] = posEnd;
+            backward[posEnd] = pos;
+        }
+    }
+
+    void eraseIterator(size_t pos) {
+        if (pos == posBegin) {
+            posBegin = forward[pos];
+        }
+        else {
+            int prv = backward[pos], nxt = forward[pos];
+            forward[prv] = nxt;
+            backward[nxt] = prv;
+        }
+    }
+
+public:
+    class iterator {
+    private:
+        std::vector<Node>* table;
+        std::vector<size_t> *backward, *forward;
+        size_t pos;
+
+    public:
+        iterator() {
+            table = nullptr;
+            backward = forward = nullptr;
+            pos = 0;
+        }
+
+        iterator(const iterator& other) {
+            table = other.table;
+            backward = other.backward;
+            forward = other.forward;
+            pos = other.pos;
+        }
+
+        iterator(std::vector<Node>& table_, std::vector<size_t>& backward_,
+            std::vector<size_t>& forward_, size_t pos_) :
+            table(&table_), backward(&backward_), forward(&forward_), pos(pos_) {
+        }
+
+        std::pair<const KeyType, ValueType>& operator *() const {
+            return reinterpret_cast<std::pair<const KeyType, ValueType>&>((*table)[pos].getPair());
+        }
+
+        std::pair<const KeyType, ValueType>* operator ->() const {
+            return reinterpret_cast<std::pair<const KeyType, ValueType>*>(&((*table)[pos].getPair()));
+        }
+
+        iterator operator ++() {
+            pos = (*forward)[pos];
+            return *this;
+        }
+
+        iterator operator ++(int) {
+            iterator it(*this);
+            pos = (*forward)[pos];
+            return it;
+        }
+
+        iterator operator --() {
+            pos = (*backward)[pos];
+            return *this;
+        }
+
+        iterator operator --(int) {
+            iterator it(*this);
+            pos = (*backward)[pos];
+            return it;
+        }
+
+        bool operator ==(const iterator& other) {
+            return (pos == other.pos && table == other.table &&
+                forward == other.forward && backward == other.backward);
+        }
+
+        bool operator !=(const iterator& other) {
+            return !(*this == other);
+        }
+    };
+
+    class const_iterator {
+    private:
+        const std::vector<Node>* table;
+        const std::vector<size_t>* backward, * forward;
+        size_t pos;
+
+    public:
+        const_iterator() {
+            table = nullptr;
+            backward = forward = nullptr;
+            pos = 0;
+        }
+
+        const_iterator(const const_iterator& other) {
+            table = other.table;
+            backward = other.backward;
+            forward = other.forward;
+            pos = other.pos;
+        }
+
+        const_iterator(const std::vector<Node>& table_, const std::vector<size_t>& backward_,
+            const std::vector<size_t>& forward_, const size_t pos_) :
+            table(&table_), backward(&backward_), forward(&forward_), pos(pos_) {
+
+        }
+
+        const std::pair<const KeyType, ValueType>& operator *() const {
+            return reinterpret_cast<const std::pair<const KeyType, ValueType>&>((*table)[pos].getPair());
+        }
+
+        const std::pair<const KeyType, ValueType>* operator ->() const {
+            return reinterpret_cast<const std::pair<const KeyType, ValueType>*>(&((*table)[pos].getPair()));
+        }
+
+        const_iterator operator ++() {
+            pos = (*forward)[pos];
+            return *this;
+        }
+
+        const_iterator operator ++(int) {
+            const_iterator it(*this);
+            pos = (*forward)[pos];
+            return it;
+        }
+
+        const_iterator operator --() {
+            pos = (*backward)[pos];
+            return *this;
+        }
+
+        const_iterator operator --(int) {
+            const_iterator it(*this);
+            pos = (*backward)[pos];
+            return it;
+        }
+
+        bool operator ==(const const_iterator& other) {
+            return (pos == other.pos && table == other.table &&
+                forward == other.forward && backward == other.backward);
+        }
+
+        bool operator !=(const const_iterator& other) {
+            return !(*this == other);
+        }
+    };
+
+    HashMap(Hash hasher_ =  Hash()) : hasher(hasher_) {
+        tableSize = OriginalSize;
+        tableCapacity = OriginalCapacity;
+        backward.resize(tableSize + 1);
+        forward.resize(tableSize + 1);
+        posBegin = posEnd = tableSize;
+        cntDeleted = cntNonDeleted = 0;
+        hashTable.resize(tableSize);
+    }
+
+    template <typename Iterator>
+    HashMap(Iterator begin, Iterator end, Hash hasher_ =  Hash()) {
+        *this = HashMap<KeyType, ValueType, Hash>(hasher_);
+        for (auto it = begin; it != end; it++) {
+            insert(*it);
+        }
+    }
+
+    HashMap(const std::initializer_list<std::pair<KeyType, ValueType>>& list, Hash hasher_ =  Hash()) {
+        *this = HashMap<KeyType, ValueType, Hash>(hasher_);
+        for (auto& it : list) {
+            insert(it);
+        }
+    }
+
+    HashMap(const HashMap<KeyType, ValueType, Hash>& other): hasher(other.hasher) {
+        hashTable = other.hashTable;
+        backward = other.backward;
+        forward = other.forward;
+        posBegin = other.posBegin;
+        posEnd = other.posEnd;
+        tableSize = other.tableSize;
+        tableCapacity = other.tableCapacity;
+        cntDeleted = other.cntDeleted;
+        cntNonDeleted = other.cntNonDeleted;
+    }
+
+    void insert(const std::pair<KeyType, ValueType>& bond) {    // можно оптимизировать
+        if (cntDeleted + cntNonDeleted > tableCapacity) {
+            resize();
+        }
+
+        if (2 * (cntDeleted + cntNonDeleted) > tableCapacity && cntDeleted > cntNonDeleted) {
+            rehash();
+        }
+
+        for (size_t pos = getHash(bond.first); ; pos = inc(pos)) {
+            if (!hashTable[pos].has_created) {
+                hashTable[pos] = Node(bond);
+                insertIterator(pos);
+                cntNonDeleted++;
+                return;
+            }
+            else if (!hashTable[pos].has_deleted && hashTable[pos].getKey() == bond.first) {
+                return;
+            }
+        }
+    }
+
+    void erase(const KeyType& key) {
+        for (size_t pos = getHash(key); ; pos = inc(pos)) {
+            if (!hashTable[pos].has_created) {
+                return;
+            }
+            else if (!hashTable[pos].has_deleted && hashTable[pos].getKey() == key) {
+                hashTable[pos].has_deleted = true;
+                eraseIterator(pos);
+                cntNonDeleted--;
+                cntDeleted++;
+                return;
+            }
+        }
+    }
+
+    iterator begin() {
+        return  iterator(hashTable, backward, forward, posBegin);
+    }
+
+    iterator end() {
+        return  iterator(hashTable, backward, forward, posEnd);
+    }
+
+    iterator find(const KeyType& key) {
+        for (size_t pos = getHash(key); ; pos = inc(pos)) {
+            if (!hashTable[pos].has_created) {
+                return end();
+            } 
+            else if (!hashTable[pos].has_deleted && hashTable[pos].getKey() == key) {
+                return  iterator(hashTable, backward, forward, pos);
+            }
+        }
+    }
+
+    const_iterator begin() const {
+        return  const_iterator(hashTable, backward, forward, posBegin);
+    }
+
+    const_iterator end() const {
+        return  const_iterator(hashTable, backward, forward, posEnd);
+    }
+
+    const_iterator find(const KeyType& key) const {
+        for (size_t pos = getHash(key); ; pos = inc(pos)) {
+            if (!hashTable[pos].has_created) {
+                return end();
+            } 
+            else if (!hashTable[pos].has_deleted && hashTable[pos].getKey() == key) {
+                return  const_iterator(hashTable, backward, forward, pos);
+            }
+        }
+    }
+
+    size_t size() const {
+        return cntNonDeleted;
+    }
+
+    bool empty() const {
+        return (cntNonDeleted == 0);
+    }
+
+    Hash hash_function() const {
+        return hasher;
+    }
+
+    ValueType& operator [](const KeyType& key) {
+        auto it = find(key);
+        if (it == end()) {
+            insert(std::make_pair(key,  ValueType()));
+            return find(key)->second;
+        }
+        else {
+            return it->second;
+        }
+    }
+
+    const ValueType& at(const KeyType& key) const {
+        auto it = find(key);
+        if (it == end()) {
+            throw(std::out_of_range("sad"));
+        } 
+        else {
+            return it->second;
+        }
+    }
+
+    void clear() {
+        auto save = *this;
+
+        for (auto& it : save) {
+            erase(it.first);
+        }
+    }
+};
